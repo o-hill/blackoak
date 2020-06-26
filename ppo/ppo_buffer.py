@@ -103,6 +103,7 @@ class Storage:
             self.advantages,
             self.returns,
             self.logp,
+            self.rewards,
         )
 
 

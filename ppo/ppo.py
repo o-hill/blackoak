@@ -5,10 +5,12 @@
 '''
 
 from ppo_buffer import Storage
-from actor_critic import mlp_actor_critic
+from actor_critic import mlp_actor_critic, get_space_shape
 
 import numpy as np
 import tensorflow as tf
+from tqdm import tqdm
+from time import sleep
 
 
 class PPOAgent:
@@ -18,7 +20,7 @@ class PPOAgent:
             env_function,
             actor_critic = mlp_actor_critic,
             seed: int = 0,
-            steps_per_epoch: int = 5000,
+            steps_per_epoch: int = 500,
             n_epochs: int = 50,
             gamma: float = 0.99,
             clip_ratio: float = 0.2,
@@ -38,12 +40,11 @@ class PPOAgent:
         np.random.seed(seed)
 
         self.env = env_function()
-        observation_dim = self.env.observation_space.shape
-        action_dim = self.env.action_space.shape
+        observation_dim = get_space_shape(self.env.observation_space)
+        action_dim = get_space_shape(self.env.action_space)
 
         # Set up policy and value networks.
-        self.policy_network, self.value_network, self.value_optimizer = actor_critic(
-            observation_dim = observation_dim,
+        self.policy = actor_critic(
             env = self.env,
             clip_ratio = clip_ratio,
             pi_lr = pi_lr,
@@ -57,6 +58,7 @@ class PPOAgent:
             capacity = steps_per_epoch,
         )
 
+
     def run(self) -> None:
         '''Collect experience and train the policy and value networks.'''
 
@@ -67,10 +69,10 @@ class PPOAgent:
         ep_length = 0
 
         for epoch in range(self.n_epochs):
-            for t in range(self.steps_per_epoch):
+            for t in tqdm(range(self.steps_per_epoch)):
 
-                action_t, log_prob_t = self.policy_network.estimate(np.array([observation]))
-                value_t = self.value_network(np.array([observation.reshape(-1, 1)]))
+                action_t, log_prob_t = self.policy.observe(np.array([observation]))
+                value_t = self.policy.value(np.array([observation]))
 
                 action_t, log_prob_t, value_t = action_t.numpy(), log_prob_t.numpy(), value_t.numpy()
 
@@ -97,7 +99,7 @@ class PPOAgent:
                         print(f'Trajectory cut off before terminal state at {ep_length}.')
 
                     # Determine the final value estimate.
-                    last_value = 0 if done else self.value_network(np.array([observation.reshape(-1, 1)]))
+                    last_value = 0 if done else self.policy.value(np.array([observation]))
                     self.storage.end_trajectory(last_value)
 
                     # Reset the environment and prepare for the new trajectory.
@@ -109,18 +111,21 @@ class PPOAgent:
 
             # Save the model.
             if epoch % self.save_frequency == 0 or epoch == self.n_epochs - 1:
-                self.policy_network.network.save('./networks/lunar_policy.h5')
-                self.value_network.save('./networks/lunar_value.h5')
+                self.policy.policy_network.save('./networks/lunar_policy.h5')
+                self.policy.value_network.save('./networks/lunar_value.h5')
+                self.policy.feature_extraction.save('./networks/lunar_features.h5')
 
 
     def update_networks(self) -> None:
         '''Update the policy and value networks.'''
 
-        observations, actions, advantages, returns, log_probs = self.storage.get()
+        observations, actions, advantages, returns, log_probs, rewards = self.storage.get()
         pi_loss_old, value_loss_old, entropy_old = self.calculate_loss(observations, advantages, returns, actions, log_probs)
 
+        print(f'Average reward: {rewards.mean()}')
+
         # Train the policy network.
-        self.policy_network.train_step(
+        self.policy.train_step_policy(
             observations = observations,
             advantages = advantages,
             actions = actions,
@@ -130,7 +135,11 @@ class PPOAgent:
         )
 
         # Train the value network.
-        self.train_value_network(observations, returns)
+        self.policy.train_step_value(
+            observations = observations,
+            returns = returns,
+            train_value_iters = self.train_value_iters,
+        )
 
         # Re-evaluate loss.
         pi_loss_new, value_loss_new, entropy_new = self.calculate_loss(observations, advantages, returns, actions, log_probs)
@@ -146,39 +155,45 @@ class PPOAgent:
         print('----------------------\n\n')
 
 
-
-
     def calculate_loss(self, observations, advantages, returns, actions, log_probs) -> tuple:
         '''Calculate the loss of the policy and value networks.'''
 
         # Evaluate the policy network loss.
-        pi_loss, _, entropy = self.policy_network.loss(observations, advantages, actions, log_probs)
+        pi_loss, _, entropy = self.policy.policy_loss(observations, advantages, actions, log_probs)
 
         # Evaluate the value network loss.
-        value_loss = self.calculate_value_loss(observations, returns)
+        value_loss = self.policy.value_loss(observations, returns)
 
         return pi_loss, value_loss, entropy
 
 
-    @tf.function
-    def train_value_network(self, observations, returns) -> None:
-        '''Train the value network.'''
-
-        for _ in range(self.train_value_iters):
-            with tf.GradientTape() as tape:
-                value_loss = self.calculate_value_loss(observations, returns)
-
-            gradients = tape.gradient(value_loss, self.value_network.trainable_variables)
-            self.value_optimizer.apply_gradients(zip(gradients, self.value_network.trainable_variables))
-
-
-    def calculate_value_loss(self, observations, returns) -> float:
-        '''Calculate the value network loss.'''
-        value = self.value_network(observations)
-        return tf.reduce_mean((returns - value) ** 2)
-
 
 if __name__ == '__main__':
+
+    # from beast_gym import Beast
+    # from plume_env import Plume
+    # agent = PPOAgent(lambda: Plume())
+    # agent.run()
+
+    # env = Plume()
+    # obs = env.reset()
+    # for t in range(1200):
+
+    #     action, _ = agent.policy.observe(np.array([obs]))
+    #     action = action.numpy()
+    #     obs, rew, done, info = env.step(action)
+
+    # from matplotlib import pyplot as plt
+    # plt.imshow(env.concentration_matrix)
+
+    # path_array = np.array(env.agent.path)
+    # plt.scatter(path_array[:, 0], path_array[:, 1], s=5, c='b')
+    # plt.scatter(path_array[-1, 0], path_array[-1, 1], s=5, c='r')
+    # plt.show()
+
+
+        
+
 
     import gym
     agent = PPOAgent(lambda: gym.make('LunarLanderContinuous-v2'))
