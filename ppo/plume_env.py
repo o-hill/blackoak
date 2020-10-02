@@ -36,7 +36,7 @@ class Agent:
             self.position[1] = min(self.boundary - 1, self.position[1] + 1)
         elif action == 2: # Up
             self.position[0] = max(0, self.position[0] - 1)
-        elif action == 3:
+        elif action == 3: # Down
             self.position[0] = min(self.boundary - 1, self.position[0] + 1)
 
         # Mark this state as visited and add it to the path.
@@ -58,6 +58,7 @@ class Plume(gym.Env):
     def __init__(self, edge_length: int = 120) -> None:
         '''Set up the environment.'''
 
+        # Set up some basic parameters.
         self.edge_length = edge_length
         self.background_concentration = 350
         self.gaussian_mean = 100
@@ -65,6 +66,7 @@ class Plume(gym.Env):
         self.agent = Agent(np.random.randint(edge_length, size=2), self.edge_length)
         self.max_position_variance = self.get_maximum_variance()
 
+        # The true distributions.
         self.means = [
             [60, 85],
             [16, 48],
@@ -83,6 +85,7 @@ class Plume(gym.Env):
         # Two-dimensional position, plume concentration.
         self.observation_space = gym.spaces.Box(np.array((0, 0, -np.inf)), np.array((1, 1, np.inf)))
 
+        # Create the grid in memory.
         x, y = np.linspace(0, 119, 120, dtype=int), np.linspace(0, 119, 120, dtype=int)
         self.X, self.Y = np.meshgrid(x, y)
 
@@ -97,6 +100,7 @@ class Plume(gym.Env):
             dist.pdf(m) for m, dist in zip(self.means, self.distributions)
         ]
 
+        # Compute and plot the concentration matrix.
         self.concentration_matrix = self.get_concentration_matrix()
         plt.subplot(1, 2, 1)
         plt.imshow(self.concentration_matrix)
@@ -120,19 +124,7 @@ class Plume(gym.Env):
     def render(self) -> None:
         '''Render the environment, and the agents path.'''
 
-        # # Plot just the concentration matrix.
-        # concentration_matrix = self.get_concentration_matrix()
-        # plt.subplot(1, 2, 1)
-        # plt.imshow(concentration_matrix)
-
-        # Plot the agent path on the concentration matrix.
-        # plt.subplot(1, 2, 2)
-        # plt.imshow(concentration_matrix)
-        # path_array = np.array(self.agent.path)
-        # plt.scatter(path_array[:-1, 0], path_array[:-1, 1], c='b')
-        # plt.scatter(path_array[-1, 0], path_array[-1, 1], c='r')
-        # plt.show()
-
+        # Plot the agents path over the already shown matrix.
         self.ax.scatter(self.agent.path[-1][0], self.agent.path[-1][1], c='b')
         plt.show()
 
@@ -180,7 +172,7 @@ class Plume(gym.Env):
 
 
     def get_concentration_matrix(self) -> None:
-        '''Plot the distributions.'''
+        '''Get the distributions for plotting.'''
         return self.concentration(self.X.ravel(), self.Y.ravel()).reshape(self.X.shape)
 
 
@@ -206,3 +198,7 @@ if __name__ == '__main__':
 
     env = Plume()
     env.render()
+
+
+
+
